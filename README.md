@@ -1,7 +1,7 @@
 
   # MVP
 
-  This is a code bundle for MVP. The original project is available at https://www.figma.com/design/p9TkVIzfXnZ2G8KjlR9VnH/MVP.
+  This is a code bundle for MVP. The original project is available at https://dragon-render-23089774.figma.site/.
 
   ## Running the code
 
