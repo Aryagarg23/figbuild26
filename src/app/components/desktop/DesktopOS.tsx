@@ -1,0 +1,310 @@
+/**
+ * DESKTOP OS
+ *
+ * Main desktop environment with OS-level Friction effects:
+ * - FlowPill: current task pill at top in max focus (>0.80)
+ * - PeekCard: task queue peeking from bottom (0.30-0.80), breathes below 0.50
+ * - RefocusPopup: 3 exercise options when focus < 0.30
+ * - Taper Ambient: warm color shift & grain when focus 0.50-0.70 and fatigue rising
+ * - Tactile Strike: glassmorphic ripple on task completion in flow
+ * - Neural Residue: canvas overlay on return from interruption (blue-violet-red)
+ * - Progressive Vignette: starts at fatigue 50%, gentle at 100%
+ * - Brightness dimming: continuous function of focus
+ */
+
+import { useWindowManager } from "../../context/WindowManagerContext";
+import { useBiometrics } from "../../context/BiometricContext";
+import { useSession } from "../../context/SessionContext";
+import { useState, useCallback } from "react";
+import { Window } from "./Window";
+import { Dock } from "./Dock";
+import { DigitalMoss } from "./DigitalMoss";
+import { TactileStrike } from "./TactileStrike";
+import { ProgressiveVignette } from "./ProgressiveVignette";
+import { FocusIndicator } from "./FocusIndicator";
+import { RefocusPopup } from "./RefocusPopup";
+import { AnimatePresence, motion } from "motion/react";
+
+// App component imports
+import { VSCodeApp } from "../apps/VSCodeApp";
+import { ChromeApp } from "../apps/ChromeApp";
+import { MailApp } from "../apps/MailApp";
+import { SlackApp } from "../apps/SlackApp";
+import { CalendarApp } from "../apps/CalendarApp";
+import { SpotifyApp } from "../apps/SpotifyApp";
+import { TerminalApp } from "../apps/TerminalApp";
+import { NotesApp } from "../apps/NotesApp";
+import { FinderApp } from "../apps/FinderApp";
+import { CalculatorApp } from "../apps/CalculatorApp";
+import { SettingsApp } from "../apps/SettingsApp";
+
+const APP_COMPONENTS: Record<string, React.ComponentType> = {
+  vscode: VSCodeApp,
+  chrome: ChromeApp,
+  mail: MailApp,
+  slack: SlackApp,
+  calendar: CalendarApp,
+  spotify: SpotifyApp,
+  terminal: TerminalApp,
+  notes: NotesApp,
+  finder: FinderApp,
+  calculator: CalculatorApp,
+  settings: SettingsApp,
+};
+
+interface DesktopIcon {
+  id: string;
+  name: string;
+  icon: string;
+  appId: string;
+  gridRow: number;
+  gridCol: number;
+}
+
+const DESKTOP_ICONS: DesktopIcon[] = [
+  { id: "d-vscode", name: "VS Code", icon: "⌨️", appId: "vscode", gridRow: 0, gridCol: 0 },
+  { id: "d-chrome", name: "Chrome", icon: "🌐", appId: "chrome", gridRow: 1, gridCol: 0 },
+  { id: "d-mail", name: "Mail", icon: "✉️", appId: "mail", gridRow: 2, gridCol: 0 },
+  { id: "d-slack", name: "Slack", icon: "💬", appId: "slack", gridRow: 3, gridCol: 0 },
+  { id: "d-calendar", name: "Calendar", icon: "📅", appId: "calendar", gridRow: 4, gridCol: 0 },
+  { id: "d-spotify", name: "Spotify", icon: "🎵", appId: "spotify", gridRow: 5, gridCol: 0 },
+  { id: "d-terminal", name: "Terminal", icon: "▶️", appId: "terminal", gridRow: 0, gridCol: 1 },
+  { id: "d-notes", name: "Notes", icon: "📝", appId: "notes", gridRow: 1, gridCol: 1 },
+  { id: "d-finder", name: "Finder", icon: "📁", appId: "finder", gridRow: 2, gridCol: 1 },
+  { id: "d-calculator", name: "Calculator", icon: "🔢", appId: "calculator", gridRow: 3, gridCol: 1 },
+  { id: "d-settings", name: "Settings", icon: "⚙️", appId: "settings", gridRow: 4, gridCol: 1 },
+];
+
+const APP_SIZES: Record<string, { width: number; height: number }> = {
+  vscode: { width: 1000, height: 700 },
+  chrome: { width: 1000, height: 700 },
+  mail: { width: 900, height: 650 },
+  slack: { width: 900, height: 650 },
+  calendar: { width: 800, height: 600 },
+  spotify: { width: 950, height: 650 },
+  terminal: { width: 800, height: 500 },
+  notes: { width: 900, height: 620 },
+  finder: { width: 900, height: 600 },
+  calculator: { width: 480, height: 580 },
+  settings: { width: 950, height: 650 },
+};
+
+export function DesktopOS() {
+  const { windows, focusedWindowId, openWindow, isAppOpen, focusAppWindow } = useWindowManager();
+  const { current: biometrics } = useBiometrics();
+  const { sessionState, tactileStrikeData, mossActive, mossKeywords, clearMoss } = useSession();
+  const [selectedIcon, setSelectedIcon] = useState<string | null>(null);
+
+  const handleIconDoubleClick = useCallback((icon: DesktopIcon) => {
+    if (isAppOpen(icon.appId)) {
+      focusAppWindow(icon.appId);
+    } else {
+      openWindow(icon.appId, icon.name, APP_SIZES[icon.appId]);
+    }
+  }, [isAppOpen, focusAppWindow, openWindow]);
+
+  const handleDesktopClick = useCallback(() => {
+    setSelectedIcon(null);
+  }, []);
+
+  const focus = biometrics.focus_percent;
+  const fatigue = biometrics.fatigue_percent;
+  const isActive = sessionState === "active";
+
+  // ── Continuous brightness as a function of focus ──
+  // High focus = full brightness (user is working, don't dim)
+  // Low focus = slightly dimmed (subtle, not annoying)
+  const brightness = isActive
+    ? 0.85 + focus * 0.15 // range: 0.85 (low focus) to 1.0 (high focus)
+    : 1.0;
+
+  // ── Taper Ambient: warm color shift when focus 0.50-0.70 and fatigue rising ──
+  const isTapering = isActive && focus >= 0.40 && focus <= 0.70 && fatigue > 0.45;
+  const taperIntensity = isTapering
+    ? Math.min(1, (fatigue - 0.45) / 0.4) * (1 - Math.abs(focus - 0.55) / 0.25)
+    : 0;
+
+  // Warm sepia overlay for taper state
+  const taperWarmth = taperIntensity > 0
+    ? `rgba(255, 140, 50, ${taperIntensity * 0.06})`
+    : "transparent";
+
+  // Slight grain increase during taper (via opacity of body noise)
+  const grainOpacity = taperIntensity > 0
+    ? 0.03 + taperIntensity * 0.04
+    : 0;
+
+  return (
+    <div
+      className="relative w-full h-full overflow-hidden"
+      style={{
+        backgroundColor: "#87CEEB",
+        filter: `brightness(${brightness})`,
+        transition: "filter 1.5s ease",
+      }}
+      onClick={handleDesktopClick}
+    >
+      {/* Desktop wallpaper / background */}
+      <div
+        className="absolute inset-0"
+        style={{ backgroundColor: "#87CEEB" }}
+      />
+
+      {/* Desktop Icons */}
+      <div className="absolute inset-0 p-4" style={{ paddingBottom: "56px" }}>
+        {DESKTOP_ICONS.map(icon => {
+          const isSelected = selectedIcon === icon.id;
+          return (
+            <div
+              key={icon.id}
+              className="absolute flex flex-col items-center justify-center cursor-pointer select-none"
+              style={{
+                top: `${12 + icon.gridRow * 90}px`,
+                left: `${12 + icon.gridCol * 90}px`,
+                width: "76px",
+                height: "82px",
+                borderRadius: "6px",
+                backgroundColor: isSelected ? "rgba(60, 130, 246, 0.3)" : "transparent",
+                border: isSelected ? "1px solid rgba(60, 130, 246, 0.5)" : "1px solid transparent",
+                transition: "background-color 0.1s, border-color 0.1s",
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedIcon(icon.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                handleIconDoubleClick(icon);
+              }}
+            >
+              <div
+                className="flex items-center justify-center"
+                style={{
+                  width: "42px",
+                  height: "42px",
+                  fontSize: "1.7rem",
+                  filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.5))",
+                }}
+              >
+                {icon.icon}
+              </div>
+              <span
+                className="text-center mt-0.5 px-1"
+                style={{
+                  fontSize: "0.65rem",
+                  color: "#fff",
+                  textShadow: "0 1px 3px rgba(0,0,0,0.8), 0 0px 6px rgba(0,0,0,0.5)",
+                  lineHeight: "1.2",
+                  maxWidth: "72px",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {icon.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Taper warm overlay */}
+      {taperIntensity > 0 && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundColor: taperWarmth,
+            transition: "background-color 2s ease",
+            zIndex: 4000,
+          }}
+        />
+      )}
+
+      {/* Taper grain boost */}
+      {grainOpacity > 0 && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: "var(--friction-texture-noise)",
+            opacity: grainOpacity,
+            mixBlendMode: "overlay",
+            transition: "opacity 2s ease",
+            zIndex: 4001,
+          }}
+        />
+      )}
+
+      {/* Windows */}
+      <AnimatePresence>
+        {windows.map(win => {
+          const AppComponent = APP_COMPONENTS[win.appId];
+          if (!AppComponent) return null;
+          return (
+            <Window
+              key={win.id}
+              windowId={win.id}
+              title={win.title}
+              position={win.position}
+              width={win.size.width}
+              height={win.size.height}
+              isFullscreen={win.isFullscreen}
+              isFocused={focusedWindowId === win.id}
+              zIndex={win.zIndex}
+            >
+              <AppComponent />
+            </Window>
+          );
+        })}
+      </AnimatePresence>
+
+      {/* OS-level Friction effects */}
+
+      {/* Focus Indicator — pill (>0.80) morphs to peek card (0.30–0.80) */}
+      {isActive && focus > 0.30 && !mossActive && (
+        <FocusIndicator focus={focus} />
+      )}
+
+      {/* Refocus Popup — 3 exercise options when focus < 0.30 */}
+      <AnimatePresence>
+        {isActive && focus <= 0.30 && !mossActive && (
+          <RefocusPopup />
+        )}
+      </AnimatePresence>
+
+      {/* Neural Residue — canvas overlay on return from interruption */}
+      {mossActive && (
+        <DigitalMoss
+          keywords={mossKeywords}
+          onClear={clearMoss}
+        />
+      )}
+
+      {/* Tactile Strike — glassmorphic ripple on task completion */}
+      {tactileStrikeData && (
+        <TactileStrike
+          completedTask={tactileStrikeData.completed}
+          nextTask={tactileStrikeData.next}
+        />
+      )}
+
+      {/* Progressive Vignette — starts at fatigue 50%, increases to 100% */}
+      <AnimatePresence>
+        {isActive && fatigue > 0.50 && (
+          <motion.div
+            key="progressive-vignette"
+            className="absolute inset-0"
+            style={{ zIndex: 9000, pointerEvents: "none" }}
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2, ease: [0.4, 0, 0.2, 1] }}
+          >
+            <ProgressiveVignette intensity={Math.min(1, (fatigue - 0.50) / 0.50)} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dock */}
+      <Dock />
+    </div>
+  );
+}
